@@ -1,59 +1,65 @@
 import socket
 import threading
 
-class ServerThread(threading.Thread):
-    def __init__(self, socket, thread_list):
-        super().__init__()
-        self.socket = socket
-        self.thread_list = thread_list
-        self.output = None
+IP = socket.gethostbyname(socket.gethostname())
+PORT = 5566
+ADDR = (IP, PORT)
+SIZE = 1024
+FORMAT = "utf-8"
+DISCONNECT_MESSAGE = "!DISCONNECT"
 
-    def run(self):
-        try:
-            # Reading the input from the client
-            input_stream = self.socket.makefile('r')
-            
-            # Returning the output to the client
-            self.output = self.socket.makefile('w')
+clients = []
+def send_msg(conn, addr):
+    print(f"[NEW CONNECTION] {addr} connected.")
+    for client in clients:
+        if client["addr"] != addr:
+            conn.send(f"({client['addr'][0]} {client['addr'][1]}) connected to server".encode(FORMAT))
+    for client in clients:
+        if client["addr"] != addr:
+            client["conn"].send(f"\n({addr[0]} {addr[1]}) connected to server".encode(FORMAT))
 
-            # Infinite loop for the server
-            while True:
-                output_string = input_stream.readline().strip()
-                
-                # If user types "exit" command
-                if output_string == "exit":
+    connected = True
+    while connected:
+        msg = conn.recv(SIZE).decode(FORMAT)
+        if msg == DISCONNECT_MESSAGE:
+            connected = False
+            for client in clients:
+                if client["addr"] != addr:
+                    client["conn"].send(f"\n({addr[0]} {addr[1]}) disconnected from server".encode(FORMAT))
+            for client in clients:
+                if client["addr"] == addr:
+                    clients.remove(client)
                     break
-                
-                self.print_to_all_clients(output_string)
-                print("Server received:", output_string)
-
-        except Exception as e:
-            print("Error occurred:", e)
-
-    def print_to_all_clients(self, output_string):
-        for thread in self.thread_list:
-            thread.output.write(output_string + '\n')
-            thread.output.flush()
+            else:
+                print(f"[ERROR] Cannot disconnect {addr}")
+            print(f"\r[DISCONNECT CONNECTION] {addr} disconnected.")
+        else:
+            addrs =(msg.split(':')[0], int(msg.split(':')[1]))
+            msg = msg.split(':')[2]
+            msg = f"[{addr}] {msg}"
+            for client in clients:
+                if client["addr"] == addrs:
+                    try:
+                        client["conn"].send(msg.encode(FORMAT))
+                        conn.send("Message sent".encode(FORMAT))
+                    except BrokenPipeError:
+                        print(f"[ERROR] Cannot send message to {addrs}")
+                    break
+    conn.close()
 
 def main():
-    # List to add all the client threads
-    thread_list = []
+    print("[STARTING] Server is starting...")
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(ADDR)
+    server.listen()
+    print(f"[LISTENING] Server is listening on {IP}:{PORT}")
 
-    try:
-        serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        serversocket.bind(('localhost', 5000))
-        serversocket.listen(5)
+    while True:
+        conn, addr = server.accept()
+        clients.append({"addr":addr, "conn":conn})
+        thread = threading.Thread(target=send_msg, args=(conn,addr))
+        thread.start()
+        print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
 
-        while True:
-            client_socket, client_address = serversocket.accept()
-            server_thread = ServerThread(client_socket, thread_list)
-            
-            # Starting the thread
-            thread_list.append(server_thread)
-            server_thread.start()
-
-    except Exception as e:
-        print("Error occurred in main:", e)
-
-if __name__ == "__main__":
+if __name__=="__main__":
     main()

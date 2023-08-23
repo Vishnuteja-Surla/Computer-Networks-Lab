@@ -1,64 +1,55 @@
 import socket
 import threading
+import sys
+import os
 
-class ClientRunnable(threading.Thread):
-    def __init__(self, s):
-        super().__init__()
-        self.socket = s
-        self.input = self.socket.makefile('r')
+IP = socket.gethostbyname(socket.gethostname())
+PORT = 5566
+ADDR = (IP, PORT)
+SIZE = 1024
+FORMAT = "utf-8"
+DISCONNECT_MESSAGE = "!DISCONNECT"
 
-    def run(self):
+def handle_server(client):
+    while True:
         try:
-            while True:
-                response = self.input.readline().strip()
-                print(response)
-        except Exception as e:
-            print("Error occurred:", e)
-        finally:
-            try:
-                self.input.close()
-            except Exception as e:
-                print("Error occurred:", e)
+            msg = client.recv(SIZE).decode(FORMAT)
+        except OSError:
+            return
+        if msg:
+            msg1 = msg.split()[0]
+            if msg1 != "[SERVER]":
+                print(f"\r{msg}")
+                print("> ", end="")
+                sys.stdout.flush()
+            else:
+                print(f"\r[SERVER] {msg}")
+                print("> ", end="")
+                sys.stdout.flush()
+
+
 
 def main():
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as socket:
-            socket.connect(('localhost', 5000))
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDR)
+    print(f"[CONNECTED] Client connected to {IP}:{PORT}")
 
-            # Reading the input from the server
-            input_stream = socket.makefile('r')
-            
-            # Returning the output to the server
-            output = socket.makefile('w')
+    server_thread = threading.Thread(target=handle_server, args=(client,))
+    server_thread.start()
 
-            scanner = input
-            user_input = ""
-            client_name = "empty"
+    connected = True
+    while connected:
+        msg = input("> ")
+        client.send(msg.encode(FORMAT))
+        if msg == DISCONNECT_MESSAGE:
+            connected = False
 
-            client_run = ClientRunnable(socket)
-            threading.Thread(target=client_run.run).start()
+        msg = client.recv(SIZE).decode(FORMAT)
+        if msg:
+            print(f"[SERVER] {msg}")
 
-            # Loop closes when the user enters the "exit" command
-            while user_input != "exit":
-                if client_name == "empty":
-                    print("Enter your name:")
-                    user_input = scanner()
-                    client_name = user_input
-                    output.write(user_input + '\n')
-                    output.flush()
-                    if user_input == "exit":
-                        break
-                else:
-                    message = f"({client_name}) message: "
-                    print(message, end="")
-                    user_input = scanner()
-                    output.write(message + " " + user_input + '\n')
-                    output.flush()
-                    if user_input == "exit":
-                        break
-
-    except Exception as e:
-        print("Exception occurred in client main:", e)
+    print(f"[DISCONNECTED] Client disconnected from {IP}:{PORT}")
+    client.close()
 
 if __name__ == "__main__":
     main()
